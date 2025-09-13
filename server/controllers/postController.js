@@ -5,86 +5,154 @@ import User from "../models/User.js";
 
 // Add Post
 export const addPost = async (req, res) => {
-    try {
-        const { userId } = req.auth();
-        const { content, post_type } = req.body;
-        const images = req.files
+  try {
+    const { userId } = req.auth();
+    const { content, post_type } = req.body;
+    const images = req.files || [];
 
-        let image_urls = []
+    let image_urls = [];
 
-        if(images.length){
-            image_urls = await Promise.all(
-                images.map(async (image) => {
-                    const fileBuffer = fs.readFileSync(image.path)
-                     const response = await imagekit.upload({
-                            file: fileBuffer,
-                            fileName: image.originalname,
-                            folder: "posts",
-                        })
-
-                        const url = imagekit.url({
-                            path: response.filePath,
-                            transformation: [
-                                {quality: 'auto'},
-                                { format: 'webp' },
-                                { width: '1280' }
-                            ]
-                        })
-                        return url
-                })
-            )
-        }
-
-        await Post.create({
-            user: userId,
-            content,
-            image_urls,
-            post_type
+    if (images.length) {
+      image_urls = await Promise.all(
+        images.map(async (image) => {
+          const fileBuffer = fs.readFileSync(image.path);
+          const response = await imagekit.upload({
+            file: fileBuffer,
+            fileName: image.originalname,
+            folder: "posts",
+          });
+          return imagekit.url({
+            path: response.filePath,
+            transformation: [
+              { quality: "auto" },
+              { format: "webp" },
+              { width: "1280" },
+            ],
+          });
         })
-        res.json({ success: true, message: "Post created successfully" });
-    } catch (error) {
-        console.log(error);
-        res.json({ success: false, message: error.message });
+      );
     }
-}
 
-// Get Posts
-export const getFeedPosts = async (req, res) =>{
-    try {
-        const { userId } = req.auth()
-        const user = await User.findById(userId)
+    await Post.create({ user: userId, content, image_urls, post_type });
+    res.json({ success: true, message: "Post created successfully" });
+  } catch (error) {
+    console.log(error);
+    res.json({ success: false, message: error.message });
+  }
+};
 
-        // User connections and followings 
-        const userIds = [userId, ...user.connections, ...user.following]
-        const posts = await Post.find({user: {$in: userIds}}).populate('user').sort({createdAt: -1});
+// Get Feed Posts
+export const getFeedPosts = async (req, res) => {
+  try {
+    const { userId } = req.auth();
+    const user = await User.findById(userId);
+    if (!user) return res.json({ success: false, message: "User not found" });
 
-        res.json({ success: true, posts})
-    } catch (error) {
-        console.log(error);
-        res.json({ success: false, message: error.message });
+    const userIds = [userId, ...(user.connections || []), ...(user.following || [])];
+    const posts = await Post.find({ user: { $in: userIds } })
+      .populate({ path: "user", select: "_id full_name username profile_picture" })
+      .populate({ path: "comments.user", select: "_id full_name username profile_picture" })
+      .sort({ createdAt: -1 });
+
+    res.json({ success: true, posts });
+  } catch (error) {
+    console.log(error);
+    res.json({ success: false, message: error.message });
+  }
+};
+
+// Like/Unlike Post
+export const likePost = async (req, res) => {
+  try {
+    const { userId } = req.auth();
+    const { postId } = req.body;
+
+    const post = await Post.findById(postId);
+    if (!post) return res.json({ success: false, message: "Post not found" });
+
+    if (post.likes_count.includes(userId)) {
+      post.likes_count = post.likes_count.filter(id => id !== userId);
+      await post.save();
+      return res.json({ success: true, message: "Post unliked" });
+    } else {
+      post.likes_count.push(userId);
+      await post.save();
+      return res.json({ success: true, message: "Post liked" });
     }
-}
+  } catch (error) {
+    console.log(error);
+    res.json({ success: false, message: error.message });
+  }
+};
 
-// Like Post
-export const likePost = async (req, res) =>{
-    try {
-        const { userId } = req.auth()
-        const { postId } = req.body;
+// Add Comment
+export const commentPost = async (req, res) => {
+  try {
+    const { userId } = req.auth();
+    const { postId, text } = req.body;
 
-        const post = await Post.findById(postId)
+    if (!text?.trim()) return res.json({ success: false, message: "Comment cannot be empty" });
 
-        if(post.likes_count.includes(userId)){
-            post.likes_count = post.likes_count.filter(user => user !== userId)
-            await post.save()
-            res.json({ success: true, message: 'Post unliked' });
-        }else{
-            post.likes_count.push(userId)
-            await post.save()
-            res.json({ success: true, message: 'Post liked' });
-        }
+    const post = await Post.findById(postId);
+    if (!post) return res.json({ success: false, message: "Post not found" });
 
-    } catch (error) {
-        console.log(error);
-        res.json({ success: false, message: error.message });
-    }
-}
+    const comment = { user: userId, text, createdAt: new Date() };
+    post.comments.push(comment);
+    await post.save({ validateBeforeSave: false });
+
+    // Populate the last comment's user before sending
+    const populatedPost = await Post.findById(post._id)
+      .populate({ path: "comments.user", select: "_id full_name username profile_picture" });
+    const lastComment = populatedPost.comments[populatedPost.comments.length - 1];
+
+    res.json({ success: true, comment: lastComment });
+  } catch (error) {
+    console.log(error);
+    res.json({ success: false, message: error.message });
+  }
+};
+
+// Get Comments
+export const getPostComments = async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const post = await Post.findById(postId)
+      .populate({ path: "comments.user", select: "_id full_name username profile_picture" });
+    if (!post) return res.json({ success: false, message: "Post not found" });
+
+    res.json({ success: true, comments: post.comments });
+  } catch (error) {
+    console.log(error);
+    res.json({ success: false, message: error.message });
+  }
+};
+
+// Delete Comment
+export const deleteComment = async (req, res) => {
+  try {
+    const { userId } = req.auth();
+    const { postId, commentId } = req.body;
+
+    if (!postId || !commentId)
+      return res.json({ success: false, message: "Missing postId or commentId" });
+
+    const post = await Post.findById(postId);
+    if (!post) return res.json({ success: false, message: "Post not found" });
+
+    const comment = post.comments.find(c => c._id.toString() === commentId);
+    if (!comment) return res.json({ success: false, message: "Comment not found" });
+
+    // Corrected authorization check
+    if (comment.user.toString() !== userId)
+      return res.json({ success: false, message: "Not authorized" });
+
+    // Remove comment safely
+    post.comments = post.comments.filter(c => c._id.toString() !== commentId);
+    await post.save({ validateBeforeSave: false });
+
+    res.json({ success: true, message: "Comment deleted" });
+  } catch (error) {
+    console.log(error);
+    res.json({ success: false, message: error.message });
+  }
+};
