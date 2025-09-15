@@ -2,8 +2,8 @@ import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import api from '../../api/axios';
 
 const initialState = {
-  messages: [],
-  recentMessages: [], // ✅ added recent messages
+  messages: [],       // All messages with current chat user
+  recentMessages: [], // Preview for recent chats
 };
 
 // Fetch messages for a particular user
@@ -25,7 +25,7 @@ const messagesSlice = createSlice({
   name: 'messages',
   initialState,
   reducers: {
-    // Set all messages
+    // Replace messages array
     setMessages: (state, action) => {
       state.messages = action.payload;
     },
@@ -34,38 +34,49 @@ const messagesSlice = createSlice({
     addMessage: (state, action) => {
       const newMessage = action.payload;
 
-      // Add to messages array
-      state.messages.push(newMessage);
+      // Normalize message type for images
+      const normalizedMessage = {
+        ...newMessage,
+        message_type: newMessage.media_url ? 'image' : 'text',
+      };
 
-      // ✅ Update recentMessages for chat preview
+      // Add to messages array for current chat
+      state.messages.push(normalizedMessage);
+
+      // Update recentMessages array
       const existingChatIndex = state.recentMessages.findIndex(
         (msg) =>
-          (msg.from_user_id === newMessage.from_user_id &&
-            msg.to_user_id === newMessage.to_user_id) ||
-          (msg.from_user_id === newMessage.to_user_id &&
-            msg.to_user_id === newMessage.from_user_id)
+          (msg.from_user_id._id === normalizedMessage.from_user_id._id &&
+            msg.to_user_id._id === normalizedMessage.to_user_id._id) ||
+          (msg.from_user_id._id === normalizedMessage.to_user_id._id &&
+            msg.to_user_id._id === normalizedMessage.from_user_id._id)
       );
 
       if (existingChatIndex !== -1) {
         // Replace old preview with new message
-        state.recentMessages[existingChatIndex] = newMessage;
+        state.recentMessages[existingChatIndex] = normalizedMessage;
       } else {
-        // Add new conversation to the top
-        state.recentMessages.unshift(newMessage);
+        // Add new conversation to top
+        state.recentMessages.unshift(normalizedMessage);
       }
+
+      // Sort recentMessages by latest message
+      state.recentMessages.sort(
+        (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+      );
     },
 
-    // Reset current messages
+    // Reset messages for current chat
     resetMessages: (state) => {
       state.messages = [];
     },
 
-    // ✅ Set recentMessages explicitly
+    // Explicitly set recentMessages
     setRecentMessages: (state, action) => {
       state.recentMessages = action.payload;
     },
 
-    // ✅ Reset recentMessages
+    // Reset recentMessages
     resetRecentMessages: (state) => {
       state.recentMessages = [];
     },
@@ -74,7 +85,11 @@ const messagesSlice = createSlice({
   extraReducers: (builder) => {
     builder.addCase(fetchMessages.fulfilled, (state, action) => {
       if (action.payload) {
-        state.messages = action.payload.messages;
+        // Normalize all messages when fetched
+        state.messages = action.payload.messages.map((msg) => ({
+          ...msg,
+          message_type: msg.media_url ? 'image' : 'text',
+        }));
       }
     });
   },

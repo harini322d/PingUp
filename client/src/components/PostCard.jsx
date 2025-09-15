@@ -114,7 +114,6 @@ const PostCard = ({ post }) => {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (data.success) {
-        // Deduplicate users by _id
         const combined = [...data.followers, ...data.following];
         const uniqueUsers = Array.from(new Map(combined.map((u) => [u._id, u])).values());
         setFollowers(uniqueUsers);
@@ -125,24 +124,10 @@ const PostCard = ({ post }) => {
     }
   };
 
-  // Share Post
-  const handleShare = async (to_user_id) => {
-    try {
-      const token = await getToken();
-      const { data } = await api.post(
-        '/api/post/share',
-        { postId: post._id, to_user_id },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      if (data.success) {
-        toast.success('Post shared to chat');
-        setShareModal(false);
-      } else {
-        toast.error(data.message);
-      }
-    } catch (error) {
-      toast.error(error.message);
-    }
+  // Redirect to ChatBox route for sharing
+  const handleShare = (user) => {
+    navigate(`/messages/${user._id}`, { state: { sharedPost: post } });
+    setShareModal(false);
   };
 
   return (
@@ -247,8 +232,8 @@ const PostCard = ({ post }) => {
                 {followers.length > 0 ? (
                   followers.map((u) => (
                     <div
-                      key={u._id} // unique
-                      onClick={() => handleShare(u._id)}
+                      key={u._id}
+                      onClick={() => handleShare(u)}
                       className="flex items-center gap-2 p-2 hover:bg-gray-100 rounded cursor-pointer"
                     >
                       <img src={u.profile_picture} alt="" className="w-8 h-8 rounded-full" />
