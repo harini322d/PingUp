@@ -5,11 +5,12 @@ const messageSchema = new mongoose.Schema({
     to_user_id: { type: String, ref: 'User', required: true },
     text: { type: String, trim: true },
     message_type: { type: String, enum: ['text', 'image'] },
-    media_url: { type: String },
+    media_url: { type: String },              // single image for normal chat
+    image_urls: { type: [String], default: [] }, // multiple images for shared posts
     seen: { type: Boolean, default: false },
 
-    // 👇 ADDITIONS FOR SHARE FUNCTIONALITY
-    isShared: { type: Boolean, default: false },  
+    // Share functionality
+    isShared: { type: Boolean, default: false },
     originalPostId: { type: mongoose.Schema.Types.ObjectId, ref: 'Post', default: null }
 }, 
 { timestamps: true, minimize: false });

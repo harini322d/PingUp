@@ -3,8 +3,8 @@ import imagekit from "../configs/imageKit.js";
 import Message from "../models/Message.js";
 import Post from "../models/Post.js"; // ✅ Added for sharing posts
 
-// Create an empty object to store SS Event connections
-const connections = {}; 
+// Create an empty object to store SSE connections
+const connections = {};
 
 // Controller function for the SSE endpoint
 export const sseController = (req, res) => {
@@ -30,17 +30,26 @@ export const sseController = (req, res) => {
     });
 };
 
-// Send Message
+// Send Message (supports normal text/image or shared post)
 export const sendMessage = async (req, res) => {
     try {
         const { userId } = req.auth();
-        const { to_user_id, text } = req.body;
+        const { to_user_id, text, sharedPost } = req.body;
         const image = req.file;
 
+        let message_type = "text";
         let media_url = "";
-        let message_type = image ? "image" : "text";
+        let image_urls = [];
 
-        if (message_type === "image") {
+        // Check if sending a shared post
+        if (sharedPost) {
+            // Shared post content
+            message_type = sharedPost.image_urls && sharedPost.image_urls.length > 0 ? "image" : "text";
+            media_url = sharedPost.image_urls?.[0] || "";
+            image_urls = sharedPost.image_urls || [];
+            text = sharedPost.content || "";
+        } else if (image) {
+            // Normal image message
             const fileBuffer = fs.readFileSync(image.path);
             const response = await imagekit.upload({
                 file: fileBuffer,
@@ -54,6 +63,7 @@ export const sendMessage = async (req, res) => {
                     { width: "1280" },
                 ],
             });
+            message_type = "image";
         }
 
         const message = await Message.create({
@@ -62,15 +72,18 @@ export const sendMessage = async (req, res) => {
             text,
             message_type,
             media_url,
+            image_urls,
+            isShared: !!sharedPost,
+            originalPostId: sharedPost?._id || null,
         });
 
-        res.json({ success: true, message });
+        // ✅ Populate sender info for frontend display
+        const messageWithUserData = await Message.findById(message._id)
+            .populate("from_user_id", "_id full_name username profile_picture");
+
+        res.json({ success: true, message: messageWithUserData });
 
         // Send message to to_user_id using SSE
-        const messageWithUserData = await Message.findById(message._id).populate(
-            "from_user_id"
-        );
-
         if (connections[to_user_id]) {
             connections[to_user_id].write(
                 `data: ${JSON.stringify(messageWithUserData)}\n\n`
@@ -93,7 +106,9 @@ export const getChatMessages = async (req, res) => {
                 { from_user_id: userId, to_user_id },
                 { from_user_id: to_user_id, to_user_id: userId },
             ],
-        }).sort({ created_at: -1 });
+        })
+        .sort({ createdAt: 1 }) // ascending order
+        .populate("from_user_id", "_id full_name username profile_picture"); // ✅ Populate sender info
 
         // mark messages as seen
         await Message.updateMany(
@@ -107,12 +122,13 @@ export const getChatMessages = async (req, res) => {
     }
 };
 
+// Get User Recent Messages
 export const getUserRecentMessages = async (req, res) => {
     try {
         const { userId } = req.auth();
         const messages = await Message.find({ to_user_id: userId })
             .populate("from_user_id to_user_id")
-            .sort({ created_at: -1 });
+            .sort({ createdAt: -1 });
 
         res.json({ success: true, messages });
     } catch (error) {
@@ -136,8 +152,9 @@ export const sharePostController = async (req, res) => {
 
         // Determine message_type & content
         let message_type = post.image_urls && post.image_urls.length > 0 ? "image" : "text";
-        let text = message_type === "text" ? post.content : "";
-        let media_url = message_type === "image" ? post.image_urls[0] : "";
+        let text = post.content || "";
+        let media_url = post.image_urls?.[0] || "";
+        let image_urls = post.image_urls || [];
 
         // Create the shared message
         const message = await Message.create({
@@ -146,16 +163,18 @@ export const sharePostController = async (req, res) => {
             text,
             message_type,
             media_url,
+            image_urls,
             isShared: true,
             originalPostId: post._id,
         });
 
-        res.json({ success: true, message });
+        // ✅ Populate the sender info for frontend display
+        const messageWithUserData = await Message.findById(message._id)
+            .populate("from_user_id", "_id full_name username profile_picture");
+
+        res.json({ success: true, message: messageWithUserData });
 
         // Real-time push via SSE
-        const messageWithUserData = await Message.findById(message._id).populate(
-            "from_user_id"
-        );
         if (connections[to_user_id]) {
             connections[to_user_id].write(
                 `data: ${JSON.stringify(messageWithUserData)}\n\n`

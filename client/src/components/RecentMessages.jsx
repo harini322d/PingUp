@@ -21,11 +21,22 @@ const RecentMessages = () => {
         // Group by sender & take latest message
         const groupedMessages = data.messages.reduce((acc, message) => {
           const senderId = message.from_user_id._id;
-          if (
-            !acc[senderId] ||
-            new Date(message.createdAt) > new Date(acc[senderId].createdAt)
-          ) {
-            acc[senderId] = message;
+          if (!acc[senderId]) {
+            acc[senderId] = {
+              ...message,
+              unreadCount: message.seen ? 0 : 1, // start counting
+            };
+          } else {
+            // Update latest message
+            if (new Date(message.createdAt) > new Date(acc[senderId].createdAt)) {
+              acc[senderId] = {
+                ...message,
+                unreadCount: acc[senderId].unreadCount + (message.seen ? 0 : 1),
+              };
+            } else if (!message.seen) {
+              // Increment unread count for older messages
+              acc[senderId].unreadCount += 1;
+            }
           }
           return acc;
         }, {});
@@ -86,9 +97,9 @@ const RecentMessages = () => {
                   <p className="text-gray-500 truncate">Message</p>
                 )}
 
-                {!message.seen && (
-                  <span className="bg-indigo-500 text-white w-4 h-4 flex items-center justify-center rounded-full text-[10px]">
-                    1
+                {!message.seen && message.unreadCount > 0 && (
+                  <span className="bg-indigo-500 text-white w-5 h-5 flex items-center justify-center rounded-full text-[10px]">
+                    {message.unreadCount > 4 ? '4+' : message.unreadCount}
                   </span>
                 )}
               </div>

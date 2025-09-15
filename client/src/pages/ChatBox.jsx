@@ -45,33 +45,44 @@ const ChatBox = () => {
       if (!text && images.length === 0 && !sharedPost) return;
 
       const token = await getToken();
-      const formData = new FormData();
-      formData.append("to_user_id", userId);
 
       if (sharedPost) {
-        // Shared post content
-        if (sharedPost.content) formData.append("text", sharedPost.content);
-        if (sharedPost.image_urls?.length > 0) {
-          sharedPost.image_urls.forEach((img) =>
-            formData.append("image_urls", img)
-          );
+        // Send shared post via dedicated backend endpoint
+        const { data } = await api.post(
+          "/api/message/share",
+          {
+            to_user_id: userId,
+            postId: sharedPost._id,
+          },
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+
+        if (data.success) {
+          setSharedPost(null);
+          dispatch(addMessage(data.message));
+        } else {
+          throw new Error(data.message);
         }
       } else {
+        // Normal chat message with optional images
+        const formData = new FormData();
+        formData.append("to_user_id", userId);
         text && formData.append("text", text);
         images.forEach((img) => formData.append("image", img));
-      }
 
-      const { data } = await api.post("/api/message/send", formData, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+        const { data } = await api.post("/api/message/send", formData, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
 
-      if (data.success) {
-        setText("");
-        setImages([]);
-        setSharedPost(null);
-        dispatch(addMessage(data.message));
-      } else {
-        throw new Error(data.message);
+        if (data.success) {
+          setText("");
+          setImages([]);
+          dispatch(addMessage(data.message));
+        } else {
+          throw new Error(data.message);
+        }
       }
     } catch (error) {
       toast.error(error.message);
@@ -144,22 +155,32 @@ const ChatBox = () => {
             return (
               <div
                 key={message._id}
-                className={`flex flex-col ${
-                  isOwn ? "items-end" : "items-start"
-                }`}
+                className={`flex flex-col ${isOwn ? "items-end" : "items-start"}`}
               >
                 <div
                   className={`p-2 text-sm max-w-sm bg-white text-slate-700 rounded-lg shadow ${
                     isOwn ? "rounded-br-none" : "rounded-bl-none"
                   }`}
                 >
+                  {/* Show profile & username only for shared posts */}
+                  {message.isShared && message.from_user_id && (
+                    <div className="flex items-center gap-2 mb-1">
+                      <img
+                        src={message.from_user_id.profile_picture}
+                        alt=""
+                        className="w-6 h-6 rounded-full"
+                      />
+                      <span className="text-xs font-medium text-gray-700">
+                        {message.from_user_id.full_name}
+                      </span>
+                    </div>
+                  )}
+
                   {/* Multiple images */}
                   {message.image_urls?.length > 0 && (
                     <div
                       className={`grid gap-2 ${
-                        message.image_urls.length === 1
-                          ? "grid-cols-1"
-                          : "grid-cols-2"
+                        message.image_urls.length === 1 ? "grid-cols-1" : "grid-cols-2"
                       }`}
                     >
                       {message.image_urls.map((img, idx) => (
@@ -218,9 +239,7 @@ const ChatBox = () => {
                 {sharedPost.image_urls?.length > 0 && (
                   <div
                     className={`grid gap-2 ${
-                      sharedPost.image_urls.length === 1
-                        ? "grid-cols-1"
-                        : "grid-cols-2"
+                      sharedPost.image_urls.length === 1 ? "grid-cols-1" : "grid-cols-2"
                     }`}
                   >
                     {sharedPost.image_urls.map((img, idx) => (
