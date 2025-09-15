@@ -34,7 +34,7 @@ export const sseController = (req, res) => {
 export const sendMessage = async (req, res) => {
     try {
         const { userId } = req.auth();
-        const { to_user_id, text, sharedPost } = req.body;
+        let { to_user_id, text, sharedPost } = req.body;
         const image = req.file;
 
         let message_type = "text";
@@ -77,9 +77,16 @@ export const sendMessage = async (req, res) => {
             originalPostId: sharedPost?._id || null,
         });
 
-        // ✅ Populate sender info for frontend display
-        const messageWithUserData = await Message.findById(message._id)
+        // ✅ Populate sender info AND original post user if shared
+        let messageWithUserData = await Message.findById(message._id)
             .populate("from_user_id", "_id full_name username profile_picture");
+
+        if (sharedPost) {
+            messageWithUserData = await messageWithUserData.populate({
+                path: "originalPostId",
+                populate: { path: "user", select: "_id full_name username profile_picture" },
+            });
+        }
 
         res.json({ success: true, message: messageWithUserData });
 
@@ -108,7 +115,11 @@ export const getChatMessages = async (req, res) => {
             ],
         })
         .sort({ createdAt: 1 }) // ascending order
-        .populate("from_user_id", "_id full_name username profile_picture"); // ✅ Populate sender info
+        .populate("from_user_id", "_id full_name username profile_picture")
+        .populate({
+            path: "originalPostId",
+            populate: { path: "user", select: "_id full_name username profile_picture" },
+        }); // ✅ Populate original post user if shared
 
         // mark messages as seen
         await Message.updateMany(
@@ -168,9 +179,13 @@ export const sharePostController = async (req, res) => {
             originalPostId: post._id,
         });
 
-        // ✅ Populate the sender info for frontend display
-        const messageWithUserData = await Message.findById(message._id)
-            .populate("from_user_id", "_id full_name username profile_picture");
+        // ✅ Populate sender info AND original post user
+        let messageWithUserData = await Message.findById(message._id)
+            .populate("from_user_id", "_id full_name username profile_picture")
+            .populate({
+                path: "originalPostId",
+                populate: { path: "user", select: "_id full_name username profile_picture" },
+            });
 
         res.json({ success: true, message: messageWithUserData });
 
