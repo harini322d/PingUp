@@ -2,6 +2,10 @@ import fs from "fs";
 import imagekit from "../configs/imageKit.js";
 import Post from "../models/Post.js";
 import User from "../models/User.js";
+import Message from "../models/Message.js"; // ✅ Message model for chat
+
+// SSE connections store
+const connections = {}; // This will store { userId: res }
 
 // Add Post
 export const addPost = async (req, res) => {
@@ -100,7 +104,6 @@ export const commentPost = async (req, res) => {
     post.comments.push(comment);
     await post.save({ validateBeforeSave: false });
 
-    // Populate the last comment's user before sending
     const populatedPost = await Post.findById(post._id)
       .populate({ path: "comments.user", select: "_id full_name username profile_picture" });
     const lastComment = populatedPost.comments[populatedPost.comments.length - 1];
@@ -142,15 +145,45 @@ export const deleteComment = async (req, res) => {
     const comment = post.comments.find(c => c._id.toString() === commentId);
     if (!comment) return res.json({ success: false, message: "Comment not found" });
 
-    // Corrected authorization check
     if (comment.user.toString() !== userId)
       return res.json({ success: false, message: "Not authorized" });
 
-    // Remove comment safely
     post.comments = post.comments.filter(c => c._id.toString() !== commentId);
     await post.save({ validateBeforeSave: false });
 
     res.json({ success: true, message: "Comment deleted" });
+  } catch (error) {
+    console.log(error);
+    res.json({ success: false, message: error.message });
+  }
+};
+
+// ✅ Share Post to Chat (Real-time via SSE)
+export const sharePost = async (req, res) => {
+  try {
+    const { userId } = req.auth();
+    const { postId, to_user_id } = req.body;
+
+    const post = await Post.findById(postId);
+    if (!post) return res.json({ success: false, message: "Post not found" });
+
+    // Create shared message
+    const sharedMessage = await Message.create({
+      from_user_id: userId,
+      to_user_id,
+      isShared: true,
+      originalPostId: postId,
+      message_type: "text",
+      text: "Shared a post",
+    });
+
+    // Real-time SSE push if the recipient is connected
+    if (connections[to_user_id]) {
+      const messageWithUser = await Message.findById(sharedMessage._id).populate("from_user_id");
+      connections[to_user_id].write(`data: ${JSON.stringify(messageWithUser)}\n\n`);
+    }
+
+    res.json({ success: true, message: sharedMessage });
   } catch (error) {
     console.log(error);
     res.json({ success: false, message: error.message });

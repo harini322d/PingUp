@@ -7,7 +7,8 @@ import {
     likePost, 
     commentPost, 
     getPostComments, 
-    deleteComment 
+    deleteComment,
+    sharePost        // 👈 Import new controller
 } from '../controllers/postController.js';
 
 const postRouter = express.Router();
@@ -18,6 +19,7 @@ postRouter.get('/feed', protect, getFeedPosts);                            // Ge
 postRouter.post('/like', protect, likePost);                               // Like/unlike a post
 postRouter.post('/comment', protect, commentPost);                         // Add a comment
 postRouter.get('/comments/:postId', protect, getPostComments);             // Get comments for a post
-postRouter.post('/delete-comment', protect, deleteComment);                // Delete a comment (POST)
+postRouter.post('/delete-comment', protect, deleteComment);                // Delete a comment
+postRouter.post('/share', protect, sharePost);                             // 👈 Share post to chat
 
 export default postRouter;
